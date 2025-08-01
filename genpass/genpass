@@ -1,0 +1,126 @@
+#!/bin/bash
+
+# === CONFIGURATION ===
+BASEDIR="$HOME/genpass-usage"
+LOGFILE="$BASEDIR/genpass.log"
+MONTH=$(date +'%Y-%m')
+OUTFILE="$BASEDIR/$MONTH.md"
+
+# === ENSURE OUTPUT DIRECTORY EXISTS ===
+mkdir -p "$BASEDIR"
+
+# === FUNCTIONS ===
+
+generate_password() {
+    if ! command -v pwgen &>/dev/null; then
+        echo "❌ 'pwgen' is not installed. Install it with: sudo apt install pwgen"
+        exit 1
+    fi
+
+    PASSWORD=$(pwgen -c -n -y -s -B 17 1)
+    echo "🔐 Generated password: $PASSWORD"
+
+    if command -v xclip &>/dev/null; then
+        echo -n "$PASSWORD" | xclip -selection clipboard
+        echo "📋 Password copied to clipboard (xclip)"
+    elif command -v wl-copy &>/dev/null; then
+        echo -n "$PASSWORD" | wl-copy
+        echo "📋 Password copied to clipboard (wl-copy)"
+    else
+        echo "⚠️ Clipboard unavailable (xclip or wl-copy not found)"
+    fi
+
+    echo "$(date +'%Y-%m-%d %H:%M:%S')" >> "$LOGFILE"
+
+    update_markdown "$MONTH"
+    generate_html "$MONTH"
+}
+
+update_markdown() {
+    local month="$1"
+    local mdfile="$BASEDIR/$month.md"
+
+    {
+        echo "# Password Generator Usage - $month"
+        echo
+        echo "| Date       | Uses |"
+        echo "|------------|------|"
+    } > "$mdfile"
+
+    grep "^$month" "$LOGFILE" | cut -d' ' -f1 | sort | uniq -c | while read -r count date; do
+        printf "| %s | %s |
+" "$date" "$count"
+    done >> "$mdfile"
+}
+
+generate_html() {
+    local month="$1"
+    local htmlfile="$BASEDIR/$month.html"
+
+    {
+        echo "<!DOCTYPE html>"
+        echo "<html lang=\"en\">"
+        echo "<head><meta charset=\"UTF-8\"><title>Password Usage - $month</title></head>"
+        echo "<body>"
+        echo "<h1>Password Generator Usage - $month</h1>"
+        echo "<table border=\"1\" cellspacing=\"0\" cellpadding=\"6\">"
+        echo "<tr><th>Date</th><th>Uses</th></tr>"
+    } > "$htmlfile"
+
+    grep "^$month" "$LOGFILE" | cut -d' ' -f1 | sort | uniq -c | while read -r count date; do
+        echo "<tr><td>$date</td><td>${count}</td></tr>" >> "$htmlfile"
+    done
+
+    echo "</table></body></html>" >> "$htmlfile"
+}
+
+show_stats() {
+    local month="$1"
+    local mdfile="$BASEDIR/$month.md"
+
+    if [[ ! -f "$mdfile" ]]; then
+        update_markdown "$month"
+    fi
+
+    cat "$mdfile"
+}
+
+show_help() {
+    echo "Usage: genpass [option]"
+    echo
+    echo "Available options:"
+    echo "  --gen            Generate a new password (default)"
+    echo "  --stats          Show stats for the current month"
+    echo "  --stats YYYY-MM  Show stats for a specific month"
+    echo "  --html           Generate HTML report for current month"
+    echo "  --html YYYY-MM   Generate HTML report for a specific month"
+    echo "  --help           Display this help message"
+}
+
+case "$1" in
+    --gen|"")
+        generate_password
+        ;;
+    --stats)
+        if [[ -n "$2" ]]; then
+            show_stats "$2"
+        else
+            show_stats "$MONTH"
+        fi
+        ;;
+    --html)
+        if [[ -n "$2" ]]; then
+            generate_html "$2"
+        else
+            generate_html "$MONTH"
+        fi
+        ;;
+    --help)
+        show_help
+        ;;
+    *)
+        echo "❌ Unknown option: $1"
+        show_help
+        exit 1
+        ;;
+esac
